@@ -18,21 +18,7 @@ function cleanup_and_error {
 
 set -o pipefail
 
-# Act as an external node classifier if necessary
-if env | grep --quiet "PUPPET_ENC_FILE" ; then
-		sleep 1 # Without this sleep, puppet randomly hangs
-		if [ -e "$PUPPET_ENC_FILE" ] ; then
-				cat $PUPPET_ENC_FILE
-		else
-				echo -e "classes:\n"
-		fi
-		exit 0
-fi
-
 DEST=
-
-# git branch to consider for puppet
-BRANCH=master
 
 # extra options passed to puppet agent
 PUPPET_OPTIONS=
@@ -57,11 +43,7 @@ if [ -z "$refname" -o -z "$oldrev" -o -z "$newrev" ] ; then
 	exit 1
 fi
 
-if [ "$refname" != "refs/heads/$BRANCH" ] ; then
-		exit 0
-fi
-
-notice "puppet-git-receiver running on `hostname -f`"
+notice "checking push for problems on `hostname -f`"
 
 if ! which puppet >/dev/null ; then
 		cleanup_and_error 1 "Cannot find puppet"
@@ -76,7 +58,7 @@ puppetver=$(facter puppetversion)
 if [[ $puppetver == 2.6.* || $puppetver == 0.2* ]] ; then
 		validate_command="xargs --no-run-if-empty -n1 puppet --parseonly"
 else
-		validate_command="xargs --no-run-if-empty puppet parser validate"
+		validate_command="xargs --no-run-if-empty puppet parser validate --parser future"
 fi
 
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
@@ -97,98 +79,4 @@ else
 		fi
 fi
 
-pf_file="${DEST}/.puppetforge-modules"
-pf_path="${DEST}/puppetforge-modules"
-
-if [ -e $pf_file ] ; then
-		# FIXME: Check puppet version
-		notice "Installing puppet forge modules"
-		mkdir -p $pf_path || cleanup_and_error 1 "Couldn't create puppet forge modules directory: $pf_path"
-		while read -r module_name module_version ; do
-				if [[ "$module_name" != "" && ! "$module_name" =~ ^# ]] ; then
-						if [[ "$module_version" != "" ]] ; then
-								pf_version_arg="--version $module_version"
-						fi
-						puppet module install --force --target-dir $pf_path $pf_version_arg $module_name |& sed -u "s,$pf_path,,g"
-						if [ $? -ne 0 ] ; then
-								cleanup_and_error 1 "Error installing puppet forge module $module_name $module_version"
-						fi
-				fi
-		done < $pf_file
-		module_path="$module_path:$pf_path"
-fi
-
-if [ -e "${DEST}/Puppetfile" ] ; then
-	if ! which librarian-puppet >/dev/null ; then
-		error 'Puppetfile found in repo but librarian-puppet not installed.'
-	else
-		notice "Installing librarian-puppet modules"
-		lp_options=$(git config puppet-receiver.librarian-puppet-args)
-		(cd $DEST; librarian-puppet install $lp_options)
-	fi
-fi
-
-manifest_file="${DEST}/manifests/site.pp"
-
-fqdn=`facter fqdn`
-enc_file="${DEST}/manifests/nodes/${fqdn}.yml"
-
-if [ ! -e $enc_file ] ; then
-		enc_file="${DEST}/manifests/site.yml"
-fi
-
-if [ ! -e $enc_file ] ; then
-		enc_file=""
-fi
-
-if [ ! -e $manifest_file -a ! -e "$enc_file" ] ; then
-		notice "No puppet manifest detected"
-		cleanup
-		exit 0
-fi
-
-# Make a blank manifest if necessary
-if [ ! -e $manifest_file ] ; then
-		touch $manifest_file
-fi
-
-if [ -e "$enc_file" ] ; then
-		notice "Using external node classification file ${enc_file//$DEST\/}"
-fi
-
-confdir="${DEST}/puppet-confdir"
-mkdir -p $confdir/ssl
-
-cat <<EOF > "${confdir}/puppet.conf"
-[main]
-  node_terminus = exec
-  external_nodes = `pwd`/$0
-  templatedir=${DEST}/templates
-EOF
-
-if [ -e "${DEST}/hiera" ] ; then
-		cat <<EOF > "${confdir}/hiera.yaml"
----
-:backends: - yaml
-           - puppet
-:hierarchy: - %{hostname}
-            - %{fqdn}
-            - %{domain}
-            - %{ec2_placement_availability_zone}
-            - default
-:yaml:
-        :datadir: ${DEST}/hiera
-:puppet:
-    :datasource: data
-EOF
-fi
-
-notice "Applying puppet manifests"
-sudo -H PUPPET_ENC_FILE=$enc_file puppet apply --confdir=${confdir} $full_puppet_options --detailed-exitcodes --modulepath=${module_path} $manifest_file |& sed -u "s,$DEST/,,g"
-
-PUPRET=$?
-if ! [ $PUPRET -eq 0 -o $PUPRET -eq 2 ] ; then
-		cleanup_and_error 1 "Encountered a problem applying the puppet manifest, rejecting update"
-fi
-notice "Puppet manifests applied successfully"
 cleanup
