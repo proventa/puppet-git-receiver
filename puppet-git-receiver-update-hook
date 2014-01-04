@@ -61,7 +61,7 @@ else
 		validate_command="xargs --no-run-if-empty puppet parser validate --parser future --storeconfigs"
 fi
 
-style_command="xargs --no-run-if-empty puppet-lint --with-filename"
+style_command="xargs -L 1 --no-run-if-empty puppet-lint --with-filename"
 validate_template_command="xargs -i --no-run-if-empty sh -c 'erb -x -T - \$0 | ruby -c >/dev/null' {}"
 
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
