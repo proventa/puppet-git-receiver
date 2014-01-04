@@ -58,8 +58,11 @@ puppetver=$(facter puppetversion)
 if [[ $puppetver == 2.6.* || $puppetver == 0.2* ]] ; then
 		validate_command="xargs --no-run-if-empty -n1 puppet --parseonly"
 else
-		validate_command="xargs --no-run-if-empty puppet parser validate --parser future"
+		validate_command="xargs --no-run-if-empty puppet parser validate --parser future --storeconfigs"
 fi
+
+style_command="xargs --no-run-if-empty puppet-lint --with-filename"
+validate_template_command="xargs -i --no-run-if-empty sh -c 'erb -x -T - \$0 | ruby -c >/dev/null' {}"
 
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
 module_path="${DEST}/modules"
@@ -77,6 +80,24 @@ else
 		if ! find $DEST -name "*.pp" | $validate_command |& sed -u "s,$DEST/,,g" ; then
 				cleanup_and_error 1 "Encountered a problem validating the puppet manifests"
 		fi
+
+        notice "Validating erb templates for $refname"		
+        if ! find $DEST -name "*.erb" | xargs -i --no-run-if-empty sh -c 'erb -x -T - $0 | ruby -c >/dev/null || (echo "in File $0"; return 1)' {} |& sed -u "s,$DEST/,,g" ; then
+				cleanup_and_error 1 "Encountered a problem validating the erb template"
+		fi
+
 fi
+
+skip_style=$(git config --bool puppet-receiver.skip-style)
+
+if [ "$skip_style" == "true" ] ; then
+		notice "Skipping puppet style check due to config option puppet-receiver.skip-style"
+else
+		notice "Checking puppet manifests for style guideline for $refname"		
+		if ! find $DEST -name "*.pp" | $style_command |& sed -u "s,$DEST/,,g" ; then
+				cleanup_and_error 1 "Encountered a problem checking the puppet manifests style."
+		fi
+fi
+
 
 cleanup
