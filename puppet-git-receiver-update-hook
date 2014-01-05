@@ -67,11 +67,9 @@ validate_template_command="xargs -i --no-run-if-empty sh -c 'erb -x -T - \$0 | r
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
 module_path="${DEST}/modules"
 
-if ! git archive --format=tar $newrev | (cd $DEST && tar xf -) ; then
+if ! git archive --format=tar $newrev $(git diff --name-only "$oldrev" "$newrev") | (cd $DEST && tar xf -) ; then
 		cleanup_and_error 1 "Encountered a problem extracting the incoming git tree $newrev"
 fi
-
-cd $DEST
 
 skip_validation=$(git config --bool puppet-receiver.skip-validation)
 
@@ -82,12 +80,12 @@ if [ "$skip_validation" == "true" ] ; then
 		notice "Skipping puppet validation due to config option puppet-receiver.skip-validation"
 else
 		notice "Validating puppet manifests for $refname"		
-        if ! git diff --name-only "$oldrev".."$newrev"  | (grep ".pp$" || :) | $validate_command |& sed -u "s,$DEST/,,g" ; then
+        if ! find $DEST -name '*.pp' | $validate_command |& sed -u "s,$DEST/,,g" ; then
 				cleanup_and_error 1 "Encountered a problem validating the puppet manifests"
 		fi
 
         notice "Validating erb templates for $refname"		
-        if ! git diff --name-only "$oldrev".."$newrev" | (grep ".erb$" || :) | xargs -i --no-run-if-empty sh -c 'erb -x -T - $0 | ruby -c >/dev/null || (echo "in File $0"; exit 1)' {} |& sed -u "s,$DEST/,,g" ; then
+        if ! find $DEST -name '*.erb' | xargs -i --no-run-if-empty sh -c 'erb -x -T - $0 | ruby -c >/dev/null || (echo "in File $0"; exit 1)' {} |& sed -u "s,$DEST/,,g" ; then
 				cleanup_and_error 1 "Encountered a problem validating the erb template"
 		fi
 
@@ -99,7 +97,7 @@ if [ "$skip_style" == "true" ] ; then
 		notice "Skipping puppet style check due to config option puppet-receiver.skip-style"
 else
 		notice "Checking puppet manifests for style guideline for $refname"		
-        if ! git diff --name-only "$oldrev".."$newrev"  | (grep ".pp$" || :) | $style_command |& sed -u "s,$DEST/,,g" ; then
+        if ! find $DEST -name '*.pp' | $style_command |& sed -u "s,$DEST/,,g" ; then
 				cleanup_and_error 1 "Encountered a problem checking the puppet manifests style."
 		fi
 fi
