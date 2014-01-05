@@ -23,7 +23,11 @@ DEST=
 # extra options passed to puppet agent
 PUPPET_OPTIONS=
 
+# extra options passed to puppet-lint
+LINT_OPTIONS=
+
 full_puppet_options="$PUPPET_OPTIONS $(git config puppet-receiver.args)"
+full_lint_options="$LINT_OPTIONS $(git config puppet-receiver.lint-args)"
 
 # --- Command line
 refname="$1"
@@ -56,12 +60,12 @@ fi
 puppetver=$(facter puppetversion)
 
 if [[ $puppetver == 2.6.* || $puppetver == 0.2* ]] ; then
-		validate_command="xargs --no-run-if-empty -n1 puppet --parseonly"
+		validate_command="xargs --no-run-if-empty -n1 puppet --parseonly $full_puppet_options"
 else
-		validate_command="xargs --no-run-if-empty puppet parser validate --parser future --storeconfigs"
+		validate_command="xargs --no-run-if-empty puppet parser validate $full_puppet_options"
 fi
 
-style_command="xargs -L 1 --no-run-if-empty puppet-lint --with-filename"
+style_command="xargs -L 1 --no-run-if-empty puppet-lint --with-filename $full_lint_options"
 validate_template_command="xargs -i --no-run-if-empty sh -c 'erb -x -T - \$0 | ruby -c >/dev/null' {}"
 
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
