@@ -71,14 +71,14 @@ validate_template_command="xargs -i --no-run-if-empty sh -c 'erb -x -T - \$0 | r
 DEST=$(mktemp -d --suffix=.puppet-git-receiver)
 module_path="${DEST}/modules"
 
-if ! git archive --format=tar $newrev $(git diff --name-only "$oldrev" "$newrev") | (cd $DEST && tar xf -) ; then
+notice "changed files:"
+git diff --name-status "$oldrev".."$newrev" 
+
+if ! git archive --format=tar $newrev $(git diff --name-only --diff-filter=ACMRTUXB --ignore-submodules "$oldrev" "$newrev") | (cd $DEST && tar xf -) ; then
 		cleanup_and_error 1 "Encountered a problem extracting the incoming git tree $newrev"
 fi
 
 skip_validation=$(git config --bool puppet-receiver.skip-validation)
-
-notice "changed files:"
-git diff --name-only "$oldrev".."$newrev" 
 
 if [ "$skip_validation" == "true" ] ; then
 		notice "Skipping puppet validation due to config option puppet-receiver.skip-validation"
